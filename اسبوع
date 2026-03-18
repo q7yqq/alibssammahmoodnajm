@@ -1,0 +1,694 @@
+import random
+import os
+import sys
+import time
+import re
+import string
+import json
+import secrets
+from threading import Thread, Lock
+import requests
+import httpx
+from bs4 import BeautifulSoup
+from user_agent import generate_user_agent as gg
+import colorama
+from colorama import Fore, Back, Style
+
+# تهيئة colorama
+colorama.init(autoreset=True)
+
+# ==================== تعريفات الألوان والأنماط ====================
+class Colors:
+    HEADER = Fore.MAGENTA + Style.BRIGHT
+    INFO = Fore.CYAN
+    SUCCESS = Fore.GREEN + Style.BRIGHT
+    WARNING = Fore.YELLOW
+    FAIL = Fore.RED
+    RESET = Style.RESET_ALL
+    BOLD = Style.BRIGHT
+    BG_BLUE = Back.BLUE
+    BG_GREEN = Back.GREEN
+    BG_CYAN = Back.CYAN
+    BG_YELLOW = Back.YELLOW
+
+ICONS = {
+    'GENERATED': '🔄',
+    'INSTAGRAM': '📷',
+    'GMAIL': '📧',
+    'AOL': '🅰️',
+    'TAKEN': '❌',
+    'AVAILABLE': '✅',
+    'ERROR': '⚠️',
+    'SENT': '📤',
+    'TIME': '⏱️',
+    'WARNING': '⚠️',
+    'INFO': 'ℹ️',
+    'STOP': '🛑',
+    'SUCCESS': '✔️',
+    'CONTACT': '📞',
+}
+
+# ==================== العدادات العامة ====================
+total_generated = 0
+instagram_taken = 0
+instagram_not_taken = 0
+google_available = 0
+google_unavailable = 0
+google_errors = 0
+aol_checked = 0
+aol_available = 0
+aol_unavailable = 0
+aol_errors = 0
+valid_hits_gmail = 0
+valid_hits_aol = 0
+counters_lock = Lock()
+
+# ==================== إعدادات التيليجرام ====================
+def get_telegram_config():
+    print(f"\n{Colors.BG_BLUE}{Colors.BOLD} {ICONS['INFO']} إعدادات التيليجرام {ICONS['INFO']} {Colors.RESET}")
+    print(f"{Colors.INFO}{'─'*50}{Colors.RESET}")
+    bot_token = input(f"{Colors.BOLD}أدخل توكن البوت (Bot Token): {Colors.RESET}").strip()
+    chat_id = input(f"{Colors.BOLD}أدخل معرف الدردشة (Chat ID): {Colors.RESET}").strip()
+    return bot_token, chat_id
+
+BOT_TOKEN, CHAT_ID = get_telegram_config()
+
+# ==================== الثوابت ====================
+GMAIL_DOMAIN = "@gmail.com"
+AOL_DOMAIN = "@aol.com"
+THREADS = 20
+
+# ==================== دالة تقدير سنة الإنشاء ====================
+def estimate_creation_date(pk_id):
+    try:
+        hy = int(pk_id) if pk_id else 0
+        ranges = [
+            (1279000, 2010),
+            (17750000, 2011),
+            (279760000, 2012),
+            (900990000, 2013),
+            (1629010000, 2014),
+            (2500000000, 2015),
+            (3713668786, 2016),
+            (5699785217, 2017),
+            (8597939245, 2018),
+            (21254029834, 2019),
+        ]
+        for upper, year in ranges:
+            if hy <= upper:
+                return year
+        if hy > 21254029834:
+            if hy <= 30577684866:
+                return 2020
+            elif hy <= 48009087498:
+                return 2021
+            elif hy <= 51994527687:
+                return 2022
+            else:
+                return 2023
+    except Exception:
+        return None
+
+# ==================== قائمة اختيار السنوات ====================
+def show_year_menu():
+    os.system('cls' if os.name == 'nt' else 'clear')
+    banner = f"""
+{Colors.HEADER}
+╔════════════════════════════════════════════════════════════╗
+║           إنستغرام → جيميل / AOL  فاليديتور                ║
+║                    الإصدار 2026 المحسن                      ║
+╚════════════════════════════════════════════════════════════╝{Colors.RESET}
+"""
+    print(banner)
+    print(f"{Colors.BG_CYAN}{Colors.BOLD} {ICONS['TIME']} اختيار سنة الصيد {ICONS['TIME']} {Colors.RESET}\n")
+    
+    year_options = {
+        1: 2010, 2: 2011, 3: 2012, 4: 2013, 5: 2014,
+        6: 2015, 7: 2016, 8: 2017, 9: 2018, 10: 2019,
+        11: 2020, 12: 2021, 13: 2022, 14: 2023
+    }
+    
+    print(f"{Colors.BOLD}السنوات المتاحة:{Colors.RESET}")
+    for i in range(1, 15, 4):
+        line = "   ".join([f"[{j:2d}] {year_options[j]}" for j in range(i, min(i+4, 15)) if j in year_options])
+        print(f"   {line}")
+    
+    print(f"\n{Colors.WARNING}{ICONS['INFO']} يمكنك اختيار أكثر من رقم (مثال: 1,3,5-8,14) أو 'all' لجميع السنوات.{Colors.RESET}")
+    
+    while True:
+        choice = input(f"\n{Colors.BOLD}{ICONS['TIME']} اختيارك: {Colors.RESET}").strip().lower()
+        
+        if choice == 'all':
+            selected = list(year_options.values())
+            break
+        
+        selected_years = set()
+        parts = choice.split(',')
+        valid = True
+        for part in parts:
+            part = part.strip()
+            if '-' in part:
+                try:
+                    start, end = map(int, part.split('-'))
+                    for num in range(start, end + 1):
+                        if 1 <= num <= 14:
+                            selected_years.add(year_options[num])
+                        else:
+                            print(f"{Colors.FAIL}⚠ الرقم {num} خارج النطاق (1-14){Colors.RESET}")
+                            valid = False
+                except:
+                    print(f"{Colors.FAIL}⚠ صيغة نطاق غير صحيحة: {part}{Colors.RESET}")
+                    valid = False
+            else:
+                try:
+                    num = int(part)
+                    if 1 <= num <= 14:
+                        selected_years.add(year_options[num])
+                    else:
+                        print(f"{Colors.FAIL}⚠ الرقم {num} خارج النطاق (1-14){Colors.RESET}")
+                        valid = False
+                except ValueError:
+                    print(f"{Colors.FAIL}⚠ إدخال غير صحيح: {part}{Colors.RESET}")
+                    valid = False
+        
+        if valid and selected_years:
+            selected = sorted(selected_years)
+            break
+        else:
+            print(f"{Colors.WARNING}❌ لم تختر أي سنة صحيحة، حاول مرة أخرى.{Colors.RESET}")
+    
+    print(f"\n{Colors.SUCCESS}{ICONS['SUCCESS']} تم اختيار السنوات: {selected}{Colors.RESET}")
+    return selected
+
+# ==================== نطاقات PK ID ====================
+def get_pk_range_for_year(year):
+    ranges = [
+        (2010, 0, 1279000),
+        (2011, 1279001, 17750000),
+        (2012, 17750001, 279760000),
+        (2013, 279760001, 900990000),
+        (2014, 900990001, 1629010000),
+        (2015, 1629010001, 2500000000),
+        (2016, 2500000001, 3713668786),
+        (2017, 3713668787, 5699785217),
+        (2018, 5699785218, 8597939245),
+        (2019, 8597939246, 21254029834),
+        (2020, 21254029835, 30577684866),
+        (2021, 30577684867, 48009087498),
+        (2022, 48009087499, 51994527687),
+        (2023, 51994527688, 10**12)
+    ]
+    for y, low, high in ranges:
+        if y == year:
+            return low, high
+    return None, None
+
+def generate_random_pk_for_year(year):
+    low, high = get_pk_range_for_year(year)
+    if low is None or high is None:
+        return None
+    return random.randint(low, high)
+
+# ==================== توليد اسم مستخدم عبر GraphQL ====================
+def generate_username(pk_id):
+    try:
+        lsd = ''.join(random.choices(string.ascii_letters + string.digits, k=4))
+        user_id = str(pk_id)
+        variables = json.dumps({"id": user_id, "render_surface": "PROFILE"})
+        data = {
+            "lsd": lsd,
+            "variables": variables,
+            "doc_id": "25618261841150840"
+        }
+        response = requests.post(
+            "https://www.instagram.com/api/graphql",
+            headers={"X-FB-LSD": lsd},
+            data=data,
+            timeout=10
+        )
+        response.raise_for_status()
+        username = response.json()['data']['user']['username']
+        return username
+    except Exception:
+        return None
+
+# ==================== جلب معلومات الحساب من إنستغرام ====================
+def get_instagram_info(username):
+    url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+    headers = {
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://www.instagram.com",
+        "User-Agent": gg(),
+        "X-IG-App-ID": "936619743392459",
+        "X-Requested-With": "XMLHttpRequest"
+    }
+    try:
+        with httpx.Client(http2=True, headers=headers, timeout=10.0) as session:
+            response = session.get(url)
+            data = response.json()
+            user = data.get('data', {}).get('user', {})
+            return {
+                'full_name': user.get('full_name', 'N/A'),
+                'username': user.get('username', 'N/A'),
+                'user_id': user.get('id', 'N/A'),
+                'biography': user.get('biography', 'N/A'),
+                'followers': user.get('edge_followed_by', {}).get('count', 0),
+                'following': user.get('edge_follow', {}).get('count', 0),
+                'posts': user.get('edge_owner_to_timeline_media', {}).get('count', 0),
+                'is_private': user.get('is_private', False),
+                'is_verified': user.get('is_verified', False),
+                'is_professional': user.get('is_professional_account', False),
+                'category': user.get('category_name', 'N/A'),
+                'email': user.get('business_email') or user.get('public_email') or 'N/A',
+                'phone': user.get('business_phone_number') or user.get('public_phone_number') or 'N/A',
+                'external_url': user.get('external_url', 'N/A'),
+            }
+    except Exception:
+        return None
+
+# ==================== فحص البريد في إنستغرام ====================
+def insta_check(email):
+    headers = {
+        'X-Csrftoken': secrets.token_hex(16),
+        'User-Agent': gg(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': '*/*',
+        'Origin': 'https://www.instagram.com',
+        'Referer': 'https://www.instagram.com/accounts/signup/email/',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'ar-IQ,ar;q=0.9,en-US;q=0.8,en;q=0.7',
+    }
+    try:
+        res = requests.post(
+            'https://www.instagram.com/api/v1/web/accounts/check_email/',
+            headers=headers,
+            data={'email': email},
+            timeout=10
+        ).text
+        return "email_is_taken" in res
+    except:
+        return False
+
+# ==================== فحص جوجل (Gmail) ====================
+def get_google_tokens():
+    try:
+        yy = 'azertyuiopmlkjhgfdsqwxcvbn'
+        n1 = ''.join(random.choice(yy) for _ in range(random.randrange(6, 9)))
+        n2 = ''.join(random.choice(yy) for _ in range(random.randrange(3, 9)))
+        host = ''.join(random.choice(yy) for _ in range(random.randrange(15, 30)))
+        
+        headers = {"google-accounts-xsrf": "1", "user-agent": gg()}
+        res = requests.get('https://accounts.google.com/signin/v2/usernamerecovery?flowName=GlifWebSignIn&hl=en-GB', headers=headers, timeout=10)
+        tok_search = re.search(r'data-initial-setup-data="%.@.null,null,null,null,null,null,null,null,null,&quot;(.*?)&quot;,null,null,null,&quot;(.*?)&', res.text)
+        
+        if not tok_search:
+            return None, None
+        tok = tok_search.group(2)
+        
+        validate_data = {
+            'f.req': '["'+tok+'","'+n1+'","'+n2+'","'+n1+'","'+n2+'",0,0,null,null,"web-glif-signup",0,null,1,[],1]',
+            'deviceinfo': '[null,null,null,null,null,"NL",null,null,null,"GlifWebSignIn",null,[],null,null,null,null,2,null,0,1,"",null,null,2,2]',
+        }
+        response = requests.post(
+            'https://accounts.google.com/_/signup/validatepersonaldetails',
+            cookies={'__Host-GAPS': host},
+            headers=headers,
+            data=validate_data,
+            timeout=10
+        )
+        
+        tl = str(response.text).split('",null,"')[1].split('"')[0]
+        new_host = response.cookies.get_dict().get('__Host-GAPS', host)
+        return tl, new_host
+    except Exception:
+        return None, None
+
+def google_check(username):
+    tl, host = get_google_tokens()
+    if not tl:
+        return None
+    
+    try:
+        headers = {
+            'authority': 'accounts.google.com',
+            'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            'google-accounts-xsrf': '1',
+            'user-agent': gg(),
+        }
+        data = f'f.req=%5B%22TL%3A{tl}%22%2C%22{username}%22%2C0%2C0%2C1%2Cnull%2C0%2C5167%5D'
+        response = requests.post(
+            f'https://accounts.google.com/_/signup/usernameavailability?TL={tl}',
+            cookies={'__Host-GAPS': host},
+            headers=headers,
+            data=data,
+            timeout=10
+        )
+        
+        if '"gf.uar",1' in response.text:
+            return True  # متاح
+        else:
+            return False  # غير متاح
+    except:
+        return None
+
+# ==================== فحص AOL (نسخة محسنة) ====================
+def aol_check(email):
+    """
+    التحقق من توفر بريد AOL.
+    تعيد True إذا كان البريد متاحاً (غير مسجل)، False إذا كان مسجلاً، None إذا حدث خطأ.
+    """
+    session = requests.Session()
+    
+    # الخطوة 1: محاكاة متصفح حقيقي بكل التفاصيل
+    headers_init = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    }
+    
+    try:
+        # جلب الصفحة الرئيسية مع البارامترات الكاملة
+        params = {
+            'intl': 'us',
+            'src': 'fp-us',
+            'activity': 'default',
+            'pspid': '1197803361',
+            'specId': 'yidregsimplified'
+        }
+        response = session.get('https://login.aol.com/account/create', params=params, headers=headers_init, timeout=15)
+        
+        if response.status_code != 200:
+            return None
+        
+        # استخراج البيانات المخفية باستخدام BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        crumb = soup.find('input', {'name': 'crumb'})
+        acrumb = soup.find('input', {'name': 'acrumb'})
+        session_index = soup.find('input', {'name': 'sessionIndex'})
+        
+        if not crumb or not acrumb or not session_index:
+            return None
+        
+        crumb_val = crumb.get('value')
+        acrumb_val = acrumb.get('value')
+        session_index_val = session_index.get('value')
+        
+        # تجهيز بيانات POST
+        local_part = email.split('@')[0]
+        domain = email.split('@')[1] if '@' in email else 'aol.com'
+        
+        # بنفس ترتيب النموذج الأصلي
+        payload = {
+            'sessionIndex': session_index_val,
+            'acrumb': acrumb_val,
+            'crumb': crumb_val,
+            'specId': 'yidregsimplified',
+            'context': 'REGISTRATION',
+            'done': '',
+            'googleIdToken': '',
+            'authCode': '',
+            'attrSetIndex': '0',
+            'tos0': 'oath_freereg|us|en-US',
+            'firstName': 'Test',
+            'lastName': 'User',
+            'yidDomain': domain,
+            'userId': local_part,
+            'password': 'Temp@123456',  # كلمة مرور مؤقتة عشوائية
+            'mm': '01',
+            'dd': '15',
+            'yyyy': '1990'
+        }
+        
+        # رؤوس طلب التحقق (محاكاة Ajax)
+        headers_post = {
+            'User-Agent': headers_init['User-Agent'],
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Origin': 'https://login.aol.com',
+            'Referer': response.url,  # الرابط الكامل بعد التوجيه
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+        }
+        
+        # تنفيذ طلب التحقق
+        validate_response = session.post(
+            'https://login.aol.com/account/create/validate',
+            params=params,  # نفس البارامترات
+            data=payload,
+            headers=headers_post,
+            timeout=15
+        )
+        
+        # تحليل الاستجابة
+        if validate_response.status_code != 200:
+            return None
+        
+        result = validate_response.json()
+        
+        # المفتاح 'displayName' يظهر فقط عندما يكون الاسم متاحاً
+        if 'displayName' in result and result['displayName']:
+            return True  # متاح
+        else:
+            # قد يكون هناك حقل errors يدل على أن الاسم مأخوذ
+            if 'errors' in result and any('already taken' in str(err).lower() for err in result['errors']):
+                return False
+            else:
+                # إذا لم نستطع التحديد، نفترض أنه غير متاح لتجنب النتائج الإيجابية الخاطئة
+                return False
+                
+    except Exception as e:
+        # يمكن إضافة طباعة للخطأ للتصحيح
+        # print(f"Error in aol_check: {e}")
+        return None
+
+# ==================== إرسال إلى التيليجرام (بالمعلومات الكاملة) ====================
+def send_to_telegram(email, source, insta_info, creation_year):
+    if not insta_info:
+        return
+    
+    profile_url = f"https://www.instagram.com/{insta_info['username']}/"
+    year_str = str(creation_year) if creation_year else "Unknown"
+    
+    message = f"""
+{ICONS['INSTAGRAM']} <b>حساب إنستغرام جديد</b> {ICONS['INSTAGRAM']}
+━━━━━━━━━━━━━━━━━━━━━
+<b>الاسم:</b> {insta_info['full_name']}
+<b>اليوزر:</b> @{insta_info['username']}
+<b>البريد:</b> {email} ({source})
+<b>تاريخ الإنشاء:</b> {year_str}
+<b>المتابعين:</b> {insta_info['followers']:,}
+<b>المتابعهم:</b> {insta_info['following']:,}
+<b>البوستات:</b> {insta_info['posts']}
+<b>البايو:</b> {insta_info['biography'][:100]}{'...' if len(insta_info['biography']) > 100 else ''}
+<b>خاص:</b> {'نعم' if insta_info['is_private'] else 'لا'}
+<b>موثق:</b> {'نعم' if insta_info['is_verified'] else 'لا'}
+━━━━━━━━━━━━━━━━━━━━━
+<b>عـلي بسام جابلك حساب انستا</b>
+"""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+    try:
+        requests.post(url, data=payload, timeout=5)
+        print(f"{Colors.SUCCESS}{ICONS['SENT']} تم إرسال {source}: {insta_info['username']} (سنة: {year_str}){Colors.RESET}")
+    except Exception as e:
+        print(f"{Colors.FAIL}{ICONS['ERROR']} فشل إرسال التيليجرام: {e}{Colors.RESET}")
+
+# ==================== شاشة الحالة (واجهة جميلة ومختصرة) ====================
+def status_display(selected_years):
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        
+        # رأس الشاشة
+        print(f"{Colors.HEADER}")
+        print("┌────────────────────────────────────────────────────┐")
+        print("│       إنستغرام → جيميل / AOL  فاليديتور 2026      │")
+        print("│              مطور بواسطة Ali Bssam                 │")
+        print("└────────────────────────────────────────────────────┘")
+        print(f"{Colors.RESET}")
+        
+        with counters_lock:
+            # إحصائيات عامة
+            print(f"{Colors.BG_BLUE}{Colors.BOLD}  📊 الإحصائيات العامة  {Colors.RESET}")
+            print(f" {ICONS['GENERATED']} المولد: {Colors.BOLD}{total_generated}{Colors.RESET}")
+            print(f" {ICONS['INSTAGRAM']} إنستغرام: {instagram_taken + instagram_not_taken} | {ICONS['TAKEN']} {instagram_taken} | {ICONS['AVAILABLE']} {instagram_not_taken}")
+            
+            # جوجل
+            print(f"\n{Colors.BG_GREEN}{Colors.BOLD}  🔍 جوجل (Gmail)  {Colors.RESET}")
+            print(f" {ICONS['AVAILABLE']} {google_available}  {ICONS['TAKEN']} {google_unavailable}  {ICONS['ERROR']} {google_errors}")
+            
+            # AOL
+            print(f"\n{Colors.BG_CYAN}{Colors.BOLD}  🅰️ AOL  {Colors.RESET}")
+            print(f" تم الفحص: {aol_checked} | {ICONS['AVAILABLE']} {aol_available} | {ICONS['TAKEN']} {aol_unavailable} | {ICONS['ERROR']} {aol_errors}")
+            
+            # التيليجرام
+            print(f"\n{Colors.BG_YELLOW}{Colors.BOLD}  💾 التيليجرام  {Colors.RESET}")
+            print(f" {ICONS['GMAIL']} Gmail: {valid_hits_gmail}  |  {ICONS['AOL']} AOL: {valid_hits_aol}")
+        
+        # سطر السنوات والإيقاف
+        print(f"\n{Colors.INFO}{ICONS['TIME']} السنوات: {selected_years}  |  {ICONS['STOP']} Ctrl+C للإيقاف{Colors.RESET}")
+        print(f"{Colors.INFO}{'─'*52}{Colors.RESET}")
+        
+        time.sleep(1.5)
+
+# ==================== العامل الرئيسي (worker) ====================
+def worker(selected_years):
+    global total_generated, instagram_taken, instagram_not_taken
+    global google_available, google_unavailable, google_errors
+    global aol_checked, aol_available, aol_unavailable, aol_errors
+    global valid_hits_gmail, valid_hits_aol
+    
+    while True:
+        year = random.choice(selected_years)
+        pk_id = generate_random_pk_for_year(year)
+        if not pk_id:
+            time.sleep(0.5)
+            continue
+        
+        username = generate_username(pk_id)
+        if not username:
+            time.sleep(0.5)
+            continue
+        
+        with counters_lock:
+            total_generated += 1
+        
+        if '_' in username:
+            continue
+        
+        # فحص Gmail أولاً
+        gmail_email = username + GMAIL_DOMAIN
+        ig_registered_gmail = insta_check(gmail_email)
+        
+        if ig_registered_gmail:
+            with counters_lock:
+                instagram_taken += 1
+            
+            google_status = google_check(username)
+            if google_status is True:  # البريد متاح في Gmail
+                with counters_lock:
+                    google_available += 1
+                
+                # جلب معلومات الحساب
+                insta_info = get_instagram_info(username)
+                if insta_info:
+                    creation_year = year  # السنة التي تم التوليد منها
+                    send_to_telegram(gmail_email, "Gmail", insta_info, creation_year)
+                    with counters_lock:
+                        valid_hits_gmail += 1
+                    with open("valid_gmail_accounts.txt", "a", encoding='utf-8') as f:
+                        f.write(f"{gmail_email} | Year: {creation_year} | Username: {username}\n")
+                    print(f"{Colors.SUCCESS}{ICONS['AVAILABLE']} Gmail صيد: {gmail_email} (سنة {creation_year}){Colors.RESET}")
+                else:
+                    print(f"{Colors.WARNING}{ICONS['WARNING']} فشل جلب معلومات الحساب لـ {username}{Colors.RESET}")
+            
+            elif google_status is False:
+                with counters_lock:
+                    google_unavailable += 1
+                print(f"{Colors.WARNING}{ICONS['TAKEN']} Gmail مسجل في جوجل: {gmail_email}{Colors.RESET}")
+            else:
+                with counters_lock:
+                    google_errors += 1
+                print(f"{Colors.FAIL}{ICONS['ERROR']} فشل فحص جوجل: {gmail_email}{Colors.RESET}")
+        
+        else:  # Gmail غير مسجل → ننتقل إلى AOL
+            with counters_lock:
+                instagram_not_taken += 1
+            print(f"{Colors.INFO}{ICONS['INSTAGRAM']} Gmail غير مسجل في إنستغرام: {gmail_email}{Colors.RESET}")
+            
+            aol_email = username + AOL_DOMAIN
+            ig_registered_aol = insta_check(aol_email)
+            
+            if ig_registered_aol:
+                with counters_lock:
+                    instagram_taken += 1
+                    aol_checked += 1
+                
+                aol_status = aol_check(aol_email)
+                
+                if aol_status is True:  # متاح في AOL
+                    with counters_lock:
+                        aol_available += 1
+                    
+                    insta_info = get_instagram_info(username)
+                    if insta_info:
+                        creation_year = year
+                        send_to_telegram(aol_email, "AOL", insta_info, creation_year)
+                        with counters_lock:
+                            valid_hits_aol += 1
+                        with open("valid_aol_accounts.txt", "a", encoding='utf-8') as f:
+                            f.write(f"{aol_email} | Year: {creation_year} | Username: {username}\n")
+                        print(f"{Colors.SUCCESS}{ICONS['AVAILABLE']} AOL صيد: {aol_email} (سنة {creation_year}){Colors.RESET}")
+                    else:
+                        print(f"{Colors.WARNING}{ICONS['WARNING']} فشل جلب معلومات الحساب لـ {username}{Colors.RESET}")
+                
+                elif aol_status is False:
+                    with counters_lock:
+                        aol_unavailable += 1
+                    print(f"{Colors.WARNING}{ICONS['TAKEN']} AOL مسجل: {aol_email}{Colors.RESET}")
+                else:
+                    with counters_lock:
+                        aol_errors += 1
+                    print(f"{Colors.FAIL}{ICONS['ERROR']} فشل فحص AOL: {aol_email}{Colors.RESET}")
+            else:
+                print(f"{Colors.INFO}{ICONS['INSTAGRAM']} AOL غير مسجل في إنستغرام: {aol_email}{Colors.RESET}")
+
+# ==================== الدالة الرئيسية ====================
+def main():
+    os.system('cls' if os.name == 'nt' else 'clear')
+    
+    banner = f"""
+{Colors.HEADER}
+╔════════════════════════════════════════════════════════════╗
+║               إنستغرام → جيميل / AOL                       ║
+║                     فاليديتور 2026                         ║
+║                   مطور بواسطة Ali Bssam                    ║
+╚════════════════════════════════════════════════════════════╝
+{Colors.RESET}
+"""
+    print(banner)
+    time.sleep(1)
+    
+    selected_years = show_year_menu()
+    
+    print(f"\n{Colors.SUCCESS}{ICONS['SUCCESS']} جاري بدء {THREADS} عاملاً...{Colors.RESET}")
+    print(f"{Colors.WARNING}{ICONS['INFO']} سيتم إرسال جميع الحسابات إلى التيليجرام مع المعلومات الكاملة.{Colors.RESET}\n")
+    
+    status_thread = Thread(target=status_display, args=(selected_years,), daemon=True)
+    status_thread.start()
+    
+    workers = []
+    for _ in range(THREADS):
+        t = Thread(target=worker, args=(selected_years,), daemon=True)
+        t.start()
+        workers.append(t)
+    
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print(f"\n{Colors.FAIL}{ICONS['STOP']} تم الإيقاف بواسطة المستخدم. يتم حفظ الإحصائيات...{Colors.RESET}")
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
