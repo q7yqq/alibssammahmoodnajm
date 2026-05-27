@@ -73,7 +73,7 @@ BOT_TOKEN, CHAT_ID = get_telegram_config()
 
 GMAIL_DOMAIN = "@gmail.com"
 AOL_DOMAIN = "@aol.com"
-THREADS = 30
+THREADS = 20
 
 # قائمة الحسابات الخاصة (صيد عالي الجودة)
 SPECIAL_PKS = [
